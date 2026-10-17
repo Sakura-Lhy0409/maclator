@@ -332,6 +332,23 @@ fn bsd_inner(cpu: &mut Cpu, n: u64, mut args: [u64; 8]) {
             }
             set_ok(cpu, 0, 0);
         }
+        92 if args[1] == 105 && args[2] != 0 => {
+            // F_GETSIGSINFO: dyld asks whether a file slice is a platform (OS) binary before it
+            // lets an arm64 process load an arm64e OS dylib from disk (e.g. libobjc-trampolines,
+            // which is not in the macOS 13 shared cache). The faked F_ADDFILESIGS above never
+            // registered a signature with the Intel host kernel, so answer for system files.
+            let mut path = [0u8; 1024];
+            let g = hostsys::unix(92, &[args[0], 50 /* F_GETPATH */, path.as_mut_ptr() as u64, 0, 0, 0, 0, 0]);
+            let p = std::ffi::CStr::from_bytes_until_nul(&path).ok().and_then(|c| c.to_str().ok()).unwrap_or("");
+            if !g.carry && (p.starts_with("/usr/lib/") || p.starts_with("/System/")) {
+                // struct fgetsigsinfo { off_t fg_file_start; int fg_info_request; int fg_sig_is_platform; }
+                unsafe { *((args[2] + 12) as *mut i32) = 1 };
+                set_ok(cpu, 0, 0);
+            } else {
+                let r = hostsys::unix(n, &args);
+                set_res(cpu, r);
+            }
+        }
         _ => {
             let r = hostsys::unix(n, &args);
             set_res(cpu, r);
