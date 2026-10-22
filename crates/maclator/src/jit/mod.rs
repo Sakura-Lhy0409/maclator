@@ -433,7 +433,10 @@ pub fn flush_profile() {
 
 // ---------------- dispatcher ----------------
 
+const JIT_BUDGET: u64 = 65_536;
+
 fn setup_cpu(cpu: &mut Cpu) {
+    cpu.budget = JIT_BUDGET;
     cpu.jit_exit = maclator_jit_exit as usize as u64;
     cpu.helpers[HELPER_INTERP] = helper_interp as usize as u64;
     cpu.helpers[HELPER_COMMPAGE] = helper_commpage as usize as u64;
@@ -513,6 +516,7 @@ fn verify_block(cpu: &mut Cpu, host: u64) {
     for (a, old, n) in log.iter().rev() {
         unsafe { std::ptr::copy_nonoverlapping(old.as_ptr(), mem::host(*a), *n) };
     }
+    cpu.budget = JIT_BUDGET;
     unsafe { maclator_jit_enter(cpu, host) };
     // Blocks with atomics race with other threads between the two runs.
     let racy = executed.iter().any(|&(_, i)| {
@@ -640,6 +644,7 @@ pub fn run(cpu: &mut Cpu) {
             verify_block(cpu, host);
         } else {
             ibtc_insert(pc, host);
+            cpu.budget = JIT_BUDGET;
             unsafe { maclator_jit_enter(cpu, host) };
         }
         match cpu.exit_reason {
